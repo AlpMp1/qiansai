@@ -10,7 +10,7 @@ class SerialPacketConfig:
     send_offset: bool = False
 
 
-def build_sort_packet(box_id: int, x_offset: int = 0, cfg: SerialPacketConfig | None = None) -> bytes:
+def build_sort_packet(box_id: int, *, x_offset: int = 0, cfg: SerialPacketConfig | None = None) -> bytes:
     cfg = cfg or SerialPacketConfig()
     box_id = int(box_id)
     if box_id < 1 or box_id > 5:
