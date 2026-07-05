@@ -64,7 +64,7 @@ static void publish_current_id_from_queue(void)
         update_processing_component_id("--");
     } else {
         char id_text[20];
-        (void)snprintf(id_text, sizeof(id_text), "ID-%u", next_id);
+        (void)snprintf(id_text, sizeof(id_text), "Box %u", next_id);
         update_processing_component_id(id_text);
     }
 }
@@ -114,7 +114,7 @@ static void publish_latest_rx_id_to_ui(void)
     __enable_irq();
 
     char id_text[20];
-    (void)snprintf(id_text, sizeof(id_text), "ID-%u", latest_id);
+    (void)snprintf(id_text, sizeof(id_text), "Box %u", latest_id);
     update_processing_component_id(id_text);
 }
 
