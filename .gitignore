@@ -6,15 +6,11 @@ __pycache__/
 venv/
 
 # Vision datasets and training outputs
-runs/
-captured_data/
-datasets/
+vision/runs/
+vision/captured_data/
+vision/datasets/
+**/labels.cache
 *.cache
-*.jpg
-*.jpeg
-*.png
-*.bmp
-*.mp4
 
 # Model weights stay local for the RAR package by default.
 *.pt
@@ -39,8 +35,6 @@ compile_commands.json
 .idea/
 *.user
 
-# Reports and identity-sensitive submission assets
-*.docx
-*.pdf
+# Local package archives
 *.rar
 *.zip
