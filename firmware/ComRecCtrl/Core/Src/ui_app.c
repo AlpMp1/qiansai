@@ -44,9 +44,9 @@ static void refresh_queue_text(void)
         for (uint8_t i = 0; i < s_dot_phase; i++) {
             dots[i] = '.';
         }
-        lv_label_set_text_fmt(s_queue_label, "Processing ID: %s %s", s_current_id, dots);
+        lv_label_set_text_fmt(s_queue_label, "Processing Box: %s %s", s_current_id, dots);
     } else {
-        lv_label_set_text_fmt(s_queue_label, "Processing ID: %s (Paused)", s_current_id);
+        lv_label_set_text_fmt(s_queue_label, "Processing Box: %s (Paused)", s_current_id);
     }
 }
 
