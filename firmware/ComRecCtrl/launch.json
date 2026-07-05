@@ -1,0 +1,21 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Cortex-Debug STM32F407VE (OpenOCD)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "servertype": "openocd",
+            "executable": "${workspaceFolder}/out/build/使用工具链文件配置预设/ComRecCtrl.elf",
+            "device": "STM32F407VE",
+            "configFiles": [
+                "interface/stlink.cfg",
+                "target/stm32f4x.cfg"
+            ],
+            "runToEntryPoint": "main",
+            "svdFile": "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32F4xx/Include/STM32F407xx.svd",
+            "showDevDebugOutput": "raw"
+        }
+    ]
+}
