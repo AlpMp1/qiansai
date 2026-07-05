@@ -12,8 +12,13 @@ vision/datasets/
 **/labels.cache
 *.cache
 
-# Model weights stay local for the RAR package by default.
+# Model weights and exported inference artifacts stay local for the RAR package by default.
 *.pt
+*.pth
+*.onnx
+*.engine
+*.tflite
+*.torchscript
 !vision/weights/.gitkeep
 
 # STM32/CMake build outputs
