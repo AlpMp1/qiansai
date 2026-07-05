@@ -40,7 +40,7 @@ from vision.serial_protocol import SerialPacketConfig, build_sort_packet
 
 PROJECT_DIR = Path(__file__).resolve().parent
 TRACK_REARM_GRACE_FRAMES = 2
-TrackKey = tuple[int, int]
+TrackId = int
 
 
 @dataclass(frozen=True)
@@ -63,30 +63,30 @@ class RuntimeConfig:
 @dataclass
 class TrackSendGate:
     grace_frames: int = TRACK_REARM_GRACE_FRAMES
-    sent_keys: set[TrackKey] = field(default_factory=set)
-    missed_frames: dict[TrackKey, int] = field(default_factory=dict)
+    sent_track_ids: set[TrackId] = field(default_factory=set)
+    missed_frames: dict[TrackId, int] = field(default_factory=dict)
 
-    def can_send(self, key: TrackKey) -> bool:
-        return key not in self.sent_keys
+    def can_send(self, track_id: TrackId) -> bool:
+        return track_id not in self.sent_track_ids
 
-    def mark_sent(self, key: TrackKey) -> None:
-        self.sent_keys.add(key)
-        self.missed_frames.pop(key, None)
+    def mark_sent(self, track_id: TrackId) -> None:
+        self.sent_track_ids.add(track_id)
+        self.missed_frames.pop(track_id, None)
 
-    def end_frame(self, current_in_zone_keys: set[TrackKey]) -> None:
-        for key in current_in_zone_keys:
-            self.missed_frames.pop(key, None)
+    def end_frame(self, current_in_zone_track_ids: set[TrackId]) -> None:
+        for track_id in current_in_zone_track_ids:
+            self.missed_frames.pop(track_id, None)
 
-        for key in list(self.sent_keys):
-            if key in current_in_zone_keys:
+        for track_id in list(self.sent_track_ids):
+            if track_id in current_in_zone_track_ids:
                 continue
 
-            missed_count = self.missed_frames.get(key, 0) + 1
+            missed_count = self.missed_frames.get(track_id, 0) + 1
             if missed_count > self.grace_frames:
-                self.sent_keys.remove(key)
-                self.missed_frames.pop(key, None)
+                self.sent_track_ids.remove(track_id)
+                self.missed_frames.pop(track_id, None)
             else:
-                self.missed_frames[key] = missed_count
+                self.missed_frames[track_id] = missed_count
 
 
 class SerialSender(threading.Thread):
@@ -193,10 +193,11 @@ def _parse_float(value: Any, field_name: str) -> float:
 
 
 def _parse_non_empty_str(value: Any, field_name: str) -> str:
-    parsed = str(value)
-    if not parsed.strip():
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    if not value.strip():
         raise ValueError(f"{field_name} must not be empty")
-    return parsed
+    return value
 
 
 def _require_range(value: int | float, message: str, *, minimum: float | None = None, maximum: float | None = None) -> None:
@@ -284,11 +285,14 @@ def apply_overrides(config: RuntimeConfig, args: argparse.Namespace) -> RuntimeC
     values = {field: getattr(config, field) for field in RuntimeConfig.__dataclass_fields__}
 
     if args.camera is not None:
-        values["camera_index"] = int(args.camera)
+        camera_index = _parse_int(args.camera, "camera.index")
+        _require_range(camera_index, "camera.index must be >= 0", minimum=0)
+        values["camera_index"] = camera_index
     if args.serial_port is not None:
-        values["serial_port"] = str(args.serial_port)
+        values["serial_port"] = _parse_non_empty_str(args.serial_port, "serial.port")
     if args.model is not None:
-        values["model_path"] = _resolve_model_path(args.model)
+        model_path = _parse_non_empty_str(args.model, "model.path")
+        values["model_path"] = _resolve_model_path(model_path)
 
     return RuntimeConfig(**values)
 
@@ -381,7 +385,7 @@ def main(argv: list[str] | None = None) -> int:
                 print("Camera frame read failed")
                 break
 
-            current_in_zone_keys: set[TrackKey] = set()
+            current_in_zone_track_ids: set[TrackId] = set()
             width = frame.shape[1]
             image_center_x = width // 2
             left_x = int(width * config.zone_left_ratio)
@@ -422,16 +426,14 @@ def main(argv: list[str] | None = None) -> int:
                     if track_id is not None:
                         label = f"{label} id:{track_id}"
 
-                    track_key: TrackKey | None = None
                     if track_id is not None and in_zone:
-                        track_key = (track_id, box_id)
-                        current_in_zone_keys.add(track_key)
+                        current_in_zone_track_ids.add(track_id)
 
                     sent_packet = False
                     if in_zone and sender is not None:
                         should_send = False
-                        if track_key is not None:
-                            should_send = send_gate.can_send(track_key)
+                        if track_id is not None:
+                            should_send = send_gate.can_send(track_id)
                         elif now - last_trackless_send_at >= config.cooldown_sec:
                             should_send = True
 
@@ -442,8 +444,8 @@ def main(argv: list[str] | None = None) -> int:
                                 cfg=packet_cfg,
                             )
                             if sender.send(packet):
-                                if track_key is not None:
-                                    send_gate.mark_sent(track_key)
+                                if track_id is not None:
+                                    send_gate.mark_sent(track_id)
                                 else:
                                     last_trackless_send_at = now
                                 sent_packet = True
@@ -456,7 +458,7 @@ def main(argv: list[str] | None = None) -> int:
                         color = (255, 160, 0)
                     _draw_detection(frame, xyxy, label, color)
 
-            send_gate.end_frame(current_in_zone_keys)
+            send_gate.end_frame(current_in_zone_track_ids)
 
             cv2_module.imshow(config.window_name, frame)
             key = cv2_module.waitKey(1) & 0xFF

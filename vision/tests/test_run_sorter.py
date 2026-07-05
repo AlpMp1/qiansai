@@ -1,6 +1,14 @@
 import pytest
 
-from vision.run_sorter import PROJECT_DIR, SerialSender, load_config
+import vision.run_sorter as run_sorter
+from vision.run_sorter import (
+    PROJECT_DIR,
+    SerialSender,
+    TrackSendGate,
+    apply_overrides,
+    load_config,
+    parse_args,
+)
 
 
 class FakeSerial:
@@ -104,6 +112,35 @@ def test_load_config_rejects_empty_serial_port(tmp_path):
         load_config(write_config(tmp_path, serial_port='"   "'))
 
 
+def test_load_config_rejects_non_string_model_path(tmp_path):
+    with pytest.raises(ValueError, match="model.path must be a string"):
+        load_config(write_config(tmp_path, model_path=123))
+
+
+def test_apply_overrides_rejects_negative_camera_override(tmp_path):
+    base_config = load_config(write_config(tmp_path))
+    args = parse_args(["--camera", "-1"])
+
+    with pytest.raises(ValueError, match="camera.index must be >= 0"):
+        apply_overrides(base_config, args)
+
+
+def test_apply_overrides_rejects_empty_serial_port_override(tmp_path):
+    base_config = load_config(write_config(tmp_path))
+    args = parse_args(["--serial-port", ""])
+
+    with pytest.raises(ValueError, match="serial.port must not be empty"):
+        apply_overrides(base_config, args)
+
+
+def test_apply_overrides_rejects_empty_model_override(tmp_path):
+    base_config = load_config(write_config(tmp_path))
+    args = parse_args(["--model", ""])
+
+    with pytest.raises(ValueError, match="model.path must not be empty"):
+        apply_overrides(base_config, args)
+
+
 def test_load_config_rejects_non_mapping_root(tmp_path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text("- not\n- a mapping\n", encoding="utf-8")
@@ -155,54 +192,138 @@ def test_serial_sender_shutdown_with_full_queue_returns_cleanly():
 
 
 def test_track_send_gate_suppresses_while_visible_in_zone():
-    from vision.run_sorter import TrackSendGate
-
     gate = TrackSendGate(grace_frames=2)
-    key = (7, 3)
+    track_id = 7
 
-    assert gate.can_send(key) is True
-    gate.mark_sent(key)
-    assert gate.can_send(key) is False
+    assert gate.can_send(track_id) is True
+    gate.mark_sent(track_id)
+    assert gate.can_send(track_id) is False
 
-    gate.end_frame({key})
-    assert gate.can_send(key) is False
+    gate.end_frame({track_id})
+    assert gate.can_send(track_id) is False
 
 
 def test_track_send_gate_gracefully_ignores_single_frame_dropout():
-    from vision.run_sorter import TrackSendGate
-
     gate = TrackSendGate(grace_frames=2)
-    key = (7, 3)
+    track_id = 7
 
-    gate.mark_sent(key)
+    gate.mark_sent(track_id)
     gate.end_frame(set())
 
-    assert gate.can_send(key) is False
+    assert gate.can_send(track_id) is False
 
-    gate.end_frame({key})
-    assert gate.can_send(key) is False
+    gate.end_frame({track_id})
+    assert gate.can_send(track_id) is False
 
 
 def test_track_send_gate_rearms_after_grace_frames():
-    from vision.run_sorter import TrackSendGate
-
     gate = TrackSendGate(grace_frames=2)
-    key = (7, 3)
+    track_id = 7
 
-    gate.mark_sent(key)
+    gate.mark_sent(track_id)
     gate.end_frame(set())
     gate.end_frame(set())
-    assert gate.can_send(key) is False
+    assert gate.can_send(track_id) is False
 
     gate.end_frame(set())
-    assert gate.can_send(key) is True
+    assert gate.can_send(track_id) is True
 
 
-def test_track_send_gate_allows_changed_box_id():
-    from vision.run_sorter import TrackSendGate
-
+def test_track_send_gate_suppresses_class_flicker_while_in_zone():
     gate = TrackSendGate(grace_frames=2)
+    track_id = 7
 
-    gate.mark_sent((7, 3))
+    gate.mark_sent(track_id)
+    gate.end_frame({track_id})
 
-    assert gate.can_send((7, 4)) is True
+    assert gate.can_send(track_id) is False
+
+
+def test_main_suppresses_duplicate_send_when_class_flickers_in_zone(tmp_path, monkeypatch):
+    config_path = write_config(tmp_path)
+    fake_sender_instances = []
+
+    class FakeFrame:
+        shape = (100, 100, 3)
+
+    class FakeCamera:
+        def __init__(self):
+            self.frames = [FakeFrame(), FakeFrame()]
+
+        def read(self):
+            if not self.frames:
+                return False, None
+            return True, self.frames.pop(0)
+
+        def release(self):
+            pass
+
+    class FakeSerialPort:
+        def close(self):
+            pass
+
+    class FakeSerialSender:
+        def __init__(self, serial_port, queue_size):
+            self.sent_packets = []
+            fake_sender_instances.append(self)
+
+        def start(self):
+            pass
+
+        def send(self, packet):
+            self.sent_packets.append(packet)
+            return True
+
+        def shutdown(self):
+            pass
+
+    class FakeBox:
+        def __init__(self, class_id):
+            self.cls = class_id
+            self.id = 7
+            self.xyxy = [[45, 10, 55, 20]]
+
+    class FakeResult:
+        def __init__(self, class_id):
+            self.boxes = [FakeBox(class_id)]
+
+    class FakeYOLO:
+        def __init__(self, model_path):
+            self.class_ids = [3, 4]
+
+        def track(self, *args, **kwargs):
+            return [FakeResult(self.class_ids.pop(0))]
+
+    class FakeCV2:
+        FONT_HERSHEY_SIMPLEX = 0
+
+        def __init__(self):
+            self.wait_keys = [0, ord("q")]
+
+        def line(self, *args, **kwargs):
+            pass
+
+        def rectangle(self, *args, **kwargs):
+            pass
+
+        def putText(self, *args, **kwargs):
+            pass
+
+        def imshow(self, *args, **kwargs):
+            pass
+
+        def waitKey(self, delay):
+            return self.wait_keys.pop(0)
+
+        def destroyAllWindows(self):
+            pass
+
+    monkeypatch.setattr(run_sorter, "YOLO", FakeYOLO)
+    monkeypatch.setattr(run_sorter, "cv2", FakeCV2())
+    monkeypatch.setattr(run_sorter, "open_camera", lambda camera_index: FakeCamera())
+    monkeypatch.setattr(run_sorter, "open_serial", lambda config: FakeSerialPort())
+    monkeypatch.setattr(run_sorter, "SerialSender", FakeSerialSender)
+
+    assert run_sorter.main(["--config", str(config_path)]) == 0
+    assert len(fake_sender_instances) == 1
+    assert len(fake_sender_instances[0].sent_packets) == 1
