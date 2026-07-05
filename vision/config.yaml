@@ -1,0 +1,22 @@
+camera:
+  index: 1
+  window_name: "Component Sorter"
+
+model:
+  path: "weights/best.pt"
+  confidence: 0.8
+  tracker: "bytetrack.yaml"
+
+trigger_zone:
+  left_ratio: 0.45
+  right_ratio: 0.55
+  cooldown_sec: 0.5
+
+serial:
+  port: "COM13"
+  baudrate: 115200
+  timeout: 0.01
+  send_offset: false
+
+queue:
+  size: 200
