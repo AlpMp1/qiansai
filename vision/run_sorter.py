@@ -195,9 +195,10 @@ def _parse_float(value: Any, field_name: str) -> float:
 def _parse_non_empty_str(value: Any, field_name: str) -> str:
     if not isinstance(value, str):
         raise ValueError(f"{field_name} must be a string")
-    if not value.strip():
+    parsed = value.strip()
+    if not parsed:
         raise ValueError(f"{field_name} must not be empty")
-    return value
+    return parsed
 
 
 def _require_range(value: int | float, message: str, *, minimum: float | None = None, maximum: float | None = None) -> None:
@@ -415,19 +416,19 @@ def main(argv: list[str] | None = None) -> int:
                     x1, _, x2, _ = xyxy
                     x_center = (x1 + x2) // 2
                     track_id = _scalar_int(getattr(box, "id", None))
+                    in_zone = left_x <= x_center <= right_x
+
+                    if track_id is not None and in_zone:
+                        current_in_zone_track_ids.add(track_id)
 
                     box_id = model_class_to_box_id(class_id)
                     if box_id is None:
                         _draw_detection(frame, xyxy, label_for_model_class(class_id), (128, 128, 128))
                         continue
 
-                    in_zone = left_x <= x_center <= right_x
                     label = f"box {box_id}: {BOX_LABELS[box_id]}"
                     if track_id is not None:
                         label = f"{label} id:{track_id}"
-
-                    if track_id is not None and in_zone:
-                        current_in_zone_track_ids.add(track_id)
 
                     sent_packet = False
                     if in_zone and sender is not None:

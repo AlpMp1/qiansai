@@ -327,3 +327,94 @@ def test_main_suppresses_duplicate_send_when_class_flickers_in_zone(tmp_path, mo
     assert run_sorter.main(["--config", str(config_path)]) == 0
     assert len(fake_sender_instances) == 1
     assert len(fake_sender_instances[0].sent_packets) == 1
+
+
+def test_tracked_ignored_class_presence_keeps_gate_suppressed(tmp_path, monkeypatch):
+    config_path = write_config(tmp_path)
+    class_ids = [3, 0, 0, 0, 3]
+    fake_sender_instances = []
+
+    class FakeFrame:
+        shape = (100, 100, 3)
+
+    class FakeCamera:
+        def __init__(self):
+            self.frames = [FakeFrame() for _ in class_ids]
+
+        def read(self):
+            if not self.frames:
+                return False, None
+            return True, self.frames.pop(0)
+
+        def release(self):
+            pass
+
+    class FakeSerialPort:
+        def close(self):
+            pass
+
+    class FakeSerialSender:
+        def __init__(self, serial_port, queue_size):
+            self.sent_packets = []
+            fake_sender_instances.append(self)
+
+        def start(self):
+            pass
+
+        def send(self, packet):
+            self.sent_packets.append(packet)
+            return True
+
+        def shutdown(self):
+            pass
+
+    class FakeBox:
+        def __init__(self, class_id):
+            self.cls = class_id
+            self.id = 7
+            self.xyxy = [[45, 10, 55, 20]]
+
+    class FakeResult:
+        def __init__(self, class_id):
+            self.boxes = [FakeBox(class_id)]
+
+    class FakeYOLO:
+        def __init__(self, model_path):
+            self.class_ids = list(class_ids)
+
+        def track(self, *args, **kwargs):
+            return [FakeResult(self.class_ids.pop(0))]
+
+    class FakeCV2:
+        FONT_HERSHEY_SIMPLEX = 0
+
+        def __init__(self):
+            self.wait_keys = [0] * (len(class_ids) - 1) + [ord("q")]
+
+        def line(self, *args, **kwargs):
+            pass
+
+        def rectangle(self, *args, **kwargs):
+            pass
+
+        def putText(self, *args, **kwargs):
+            pass
+
+        def imshow(self, *args, **kwargs):
+            pass
+
+        def waitKey(self, delay):
+            return self.wait_keys.pop(0)
+
+        def destroyAllWindows(self):
+            pass
+
+    monkeypatch.setattr(run_sorter, "YOLO", FakeYOLO)
+    monkeypatch.setattr(run_sorter, "cv2", FakeCV2())
+    monkeypatch.setattr(run_sorter, "open_camera", lambda camera_index: FakeCamera())
+    monkeypatch.setattr(run_sorter, "open_serial", lambda config: FakeSerialPort())
+    monkeypatch.setattr(run_sorter, "SerialSender", FakeSerialSender)
+
+    assert run_sorter.main(["--config", str(config_path)]) == 0
+    assert len(fake_sender_instances) == 1
+    assert len(fake_sender_instances[0].sent_packets) == 1
