@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import queue
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -27,6 +28,9 @@ try:
     from ultralytics import YOLO
 except ImportError:
     YOLO = None
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from vision.component_mapping import BOX_LABELS, label_for_model_class, model_class_to_box_id
 from vision.serial_protocol import SerialPacketConfig, build_sort_packet
