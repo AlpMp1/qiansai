@@ -19,15 +19,15 @@ mapping = {
     '4': '2'
 }
 
-label_dir = str(SCRIPT_DIR / "captured_data") # 你的标注文件所在目录
+label_dir = str(SCRIPT_DIR.parent / "captured_data") # 你的标注文件所在目录
 
 for file_name in os.listdir(label_dir):
     if file_name.endswith(".txt") and file_name != "classes.txt":
         file_path = os.path.join(label_dir, file_name)
-        
+
         with open(file_path, 'r') as f:
             lines = f.readlines()
-            
+
         new_lines = []
         for line in lines:
             parts = line.split()
@@ -38,7 +38,7 @@ for file_name in os.listdir(label_dir):
                     new_lines.append(" ".join(parts) + "\n")
                 else:
                     new_lines.append(line) # 如果不在映射里，保持原样
-        
+
         with open(file_path, 'w') as f:
             f.writelines(new_lines)
 

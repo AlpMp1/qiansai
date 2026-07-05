@@ -7,7 +7,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 # 1. 创建保存图片的文件夹
-save_path = str(SCRIPT_DIR / "captured_data")
+save_path = str(SCRIPT_DIR.parent / "captured_data")
 if not os.path.exists(save_path):
     os.makedirs(save_path)
 
@@ -26,7 +26,7 @@ while True:
 
     # 在屏幕上显示提示信息
     display_frame = frame.copy()
-    cv2.putText(display_frame, f"Saved: {count}", (10, 30), 
+    cv2.putText(display_frame, f"Saved: {count}", (10, 30),
                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
     cv2.imshow("Data Collector", display_frame)
 

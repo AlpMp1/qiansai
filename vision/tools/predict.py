@@ -6,7 +6,11 @@ import cv2
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 # 1. 加载你训练好的模型
-model = YOLO(SCRIPT_DIR / "runs" / "detect" / "train6" / "weights" / "best.pt")
+MODEL_PATH = SCRIPT_DIR.parent / "weights" / "best.pt"
+if not MODEL_PATH.exists():
+    raise FileNotFoundError(f"Model not found: {MODEL_PATH}")
+
+model = YOLO(MODEL_PATH)
 
 # 2. 打开摄像头 (0 是默认摄像头)
 cap = cv2.VideoCapture(2)

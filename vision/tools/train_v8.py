@@ -8,13 +8,22 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 
 from ultralytics import YOLO
 
-# 1. 明确加载你刚才下载好的本地 yolov8n.pt 文件
-model = YOLO(SCRIPT_DIR / "yolov8n.pt")
+MODEL_PATH = SCRIPT_DIR.parent / "weights" / "yolov8n.pt"
+DATA_YAML = SCRIPT_DIR.parent / "data.yaml"
+OFFLINE_MODE = os.environ.get("ULTRALYTICS_OFFLINE", "").lower() in {"1", "true", "yes"}
+
+if not DATA_YAML.exists():
+    raise FileNotFoundError(f"Dataset config not found: {DATA_YAML}")
+if OFFLINE_MODE and not MODEL_PATH.exists():
+    raise FileNotFoundError(f"Base weights not found: {MODEL_PATH}")
+
+# 1. 明确加载本地 yolov8n.pt 文件
+model = YOLO(MODEL_PATH)
 
 # 2. 开始训练，设置 100 轮
 # 我们在这里直接传参，不给它乱跑的机会
 model.train(
-    data=str(SCRIPT_DIR / "data.yaml"),
+    data=str(DATA_YAML),
     epochs=100,
     imgsz=640,
     device=0,
