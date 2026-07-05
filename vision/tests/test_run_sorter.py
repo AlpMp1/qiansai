@@ -15,7 +15,11 @@ def write_config(
     tmp_path,
     *,
     camera_index=1,
+    window_name='"Component Sorter"',
+    model_path='"weights/best.pt"',
     confidence=0.8,
+    tracker='"bytetrack.yaml"',
+    serial_port='"COM13"',
     send_offset="false",
     left_ratio=0.45,
     right_ratio=0.55,
@@ -29,12 +33,12 @@ def write_config(
         f"""
 camera:
   index: {camera_index}
-  window_name: "Component Sorter"
+  window_name: {window_name}
 
 model:
-  path: "weights/best.pt"
+  path: {model_path}
   confidence: {confidence}
-  tracker: "bytetrack.yaml"
+  tracker: {tracker}
 
 trigger_zone:
   left_ratio: {left_ratio}
@@ -42,7 +46,7 @@ trigger_zone:
   cooldown_sec: {cooldown_sec}
 
 serial:
-  port: "COM13"
+  port: {serial_port}
   baudrate: {baudrate}
   timeout: {timeout}
   send_offset: {send_offset}
@@ -78,6 +82,26 @@ def test_load_config_rejects_invalid_trigger_ratios(tmp_path):
 def test_load_config_rejects_invalid_boolean_string(tmp_path):
     with pytest.raises(ValueError, match="serial.send_offset must be a boolean"):
         load_config(write_config(tmp_path, send_offset="maybe"))
+
+
+def test_load_config_rejects_non_integer_camera_index(tmp_path):
+    with pytest.raises(ValueError, match="camera.index must be an integer"):
+        load_config(write_config(tmp_path, camera_index="abc"))
+
+
+def test_load_config_rejects_fractional_queue_size(tmp_path):
+    with pytest.raises(ValueError, match="queue.size must be an integer"):
+        load_config(write_config(tmp_path, queue_size=1.9))
+
+
+def test_load_config_rejects_non_finite_confidence(tmp_path):
+    with pytest.raises(ValueError, match="model.confidence must be finite"):
+        load_config(write_config(tmp_path, confidence=".nan"))
+
+
+def test_load_config_rejects_empty_serial_port(tmp_path):
+    with pytest.raises(ValueError, match="serial.port must not be empty"):
+        load_config(write_config(tmp_path, serial_port='"   "'))
 
 
 def test_load_config_rejects_non_mapping_root(tmp_path):
@@ -128,3 +152,57 @@ def test_serial_sender_shutdown_with_full_queue_returns_cleanly():
     sender.shutdown()
 
     assert sender.is_alive() is False
+
+
+def test_track_send_gate_suppresses_while_visible_in_zone():
+    from vision.run_sorter import TrackSendGate
+
+    gate = TrackSendGate(grace_frames=2)
+    key = (7, 3)
+
+    assert gate.can_send(key) is True
+    gate.mark_sent(key)
+    assert gate.can_send(key) is False
+
+    gate.end_frame({key})
+    assert gate.can_send(key) is False
+
+
+def test_track_send_gate_gracefully_ignores_single_frame_dropout():
+    from vision.run_sorter import TrackSendGate
+
+    gate = TrackSendGate(grace_frames=2)
+    key = (7, 3)
+
+    gate.mark_sent(key)
+    gate.end_frame(set())
+
+    assert gate.can_send(key) is False
+
+    gate.end_frame({key})
+    assert gate.can_send(key) is False
+
+
+def test_track_send_gate_rearms_after_grace_frames():
+    from vision.run_sorter import TrackSendGate
+
+    gate = TrackSendGate(grace_frames=2)
+    key = (7, 3)
+
+    gate.mark_sent(key)
+    gate.end_frame(set())
+    gate.end_frame(set())
+    assert gate.can_send(key) is False
+
+    gate.end_frame(set())
+    assert gate.can_send(key) is True
+
+
+def test_track_send_gate_allows_changed_box_id():
+    from vision.run_sorter import TrackSendGate
+
+    gate = TrackSendGate(grace_frames=2)
+
+    gate.mark_sent((7, 3))
+
+    assert gate.can_send((7, 4)) is True

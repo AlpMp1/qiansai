@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import math
 import queue
 import sys
 import threading
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,8 @@ from vision.serial_protocol import SerialPacketConfig, build_sort_packet
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
+TRACK_REARM_GRACE_FRAMES = 2
+TrackKey = tuple[int, int]
 
 
 @dataclass(frozen=True)
@@ -55,6 +58,35 @@ class RuntimeConfig:
     timeout: float
     send_offset: bool
     queue_size: int
+
+
+@dataclass
+class TrackSendGate:
+    grace_frames: int = TRACK_REARM_GRACE_FRAMES
+    sent_keys: set[TrackKey] = field(default_factory=set)
+    missed_frames: dict[TrackKey, int] = field(default_factory=dict)
+
+    def can_send(self, key: TrackKey) -> bool:
+        return key not in self.sent_keys
+
+    def mark_sent(self, key: TrackKey) -> None:
+        self.sent_keys.add(key)
+        self.missed_frames.pop(key, None)
+
+    def end_frame(self, current_in_zone_keys: set[TrackKey]) -> None:
+        for key in current_in_zone_keys:
+            self.missed_frames.pop(key, None)
+
+        for key in list(self.sent_keys):
+            if key in current_in_zone_keys:
+                continue
+
+            missed_count = self.missed_frames.get(key, 0) + 1
+            if missed_count > self.grace_frames:
+                self.sent_keys.remove(key)
+                self.missed_frames.pop(key, None)
+            else:
+                self.missed_frames[key] = missed_count
 
 
 class SerialSender(threading.Thread):
@@ -135,6 +167,38 @@ def _parse_bool(value: Any) -> bool:
     raise ValueError("serial.send_offset must be a boolean")
 
 
+def _parse_int(value: Any, field_name: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be an integer")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value.strip(), 10)
+        except ValueError as exc:
+            raise ValueError(f"{field_name} must be an integer") from exc
+    raise ValueError(f"{field_name} must be an integer")
+
+
+def _parse_float(value: Any, field_name: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a number")
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be a number") from exc
+    if not math.isfinite(parsed):
+        raise ValueError(f"{field_name} must be finite")
+    return parsed
+
+
+def _parse_non_empty_str(value: Any, field_name: str) -> str:
+    parsed = str(value)
+    if not parsed.strip():
+        raise ValueError(f"{field_name} must not be empty")
+    return parsed
+
+
 def _require_range(value: int | float, message: str, *, minimum: float | None = None, maximum: float | None = None) -> None:
     if minimum is not None and value < minimum:
         raise ValueError(message)
@@ -156,14 +220,18 @@ def load_config(path: Path) -> RuntimeConfig:
     serial_config = _config_section(data, "serial")
     queue_config = _config_section(data, "queue")
 
-    camera_index = int(camera.get("index", 0))
-    conf_threshold = float(model.get("confidence", 0.8))
-    zone_left_ratio = float(trigger_zone.get("left_ratio", 0.45))
-    zone_right_ratio = float(trigger_zone.get("right_ratio", 0.55))
-    cooldown_sec = float(trigger_zone.get("cooldown_sec", 0.5))
-    baudrate = int(serial_config.get("baudrate", 115200))
-    timeout = float(serial_config.get("timeout", 0.01))
-    queue_size = int(queue_config.get("size", 200))
+    camera_index = _parse_int(camera.get("index", 0), "camera.index")
+    window_name = _parse_non_empty_str(camera.get("window_name", "Component Sorter"), "camera.window_name")
+    model_path = _parse_non_empty_str(model.get("path", "weights/best.pt"), "model.path")
+    conf_threshold = _parse_float(model.get("confidence", 0.8), "model.confidence")
+    tracker = _parse_non_empty_str(model.get("tracker", "bytetrack.yaml"), "model.tracker")
+    zone_left_ratio = _parse_float(trigger_zone.get("left_ratio", 0.45), "trigger_zone.left_ratio")
+    zone_right_ratio = _parse_float(trigger_zone.get("right_ratio", 0.55), "trigger_zone.right_ratio")
+    cooldown_sec = _parse_float(trigger_zone.get("cooldown_sec", 0.5), "trigger_zone.cooldown_sec")
+    serial_port = _parse_non_empty_str(serial_config.get("port", "COM13"), "serial.port")
+    baudrate = _parse_int(serial_config.get("baudrate", 115200), "serial.baudrate")
+    timeout = _parse_float(serial_config.get("timeout", 0.01), "serial.timeout")
+    queue_size = _parse_int(queue_config.get("size", 200), "queue.size")
 
     _require_range(camera_index, "camera.index must be >= 0", minimum=0)
     _require_range(conf_threshold, "model.confidence must be between 0 and 1 inclusive", minimum=0, maximum=1)
@@ -188,14 +256,14 @@ def load_config(path: Path) -> RuntimeConfig:
 
     return RuntimeConfig(
         camera_index=camera_index,
-        window_name=str(camera.get("window_name", "Component Sorter")),
-        model_path=_resolve_model_path(model.get("path", "weights/best.pt")),
+        window_name=window_name,
+        model_path=_resolve_model_path(model_path),
         conf_threshold=conf_threshold,
-        tracker=str(model.get("tracker", "bytetrack.yaml")),
+        tracker=tracker,
         zone_left_ratio=zone_left_ratio,
         zone_right_ratio=zone_right_ratio,
         cooldown_sec=cooldown_sec,
-        serial_port=str(serial_config.get("port", "COM13")),
+        serial_port=serial_port,
         baudrate=baudrate,
         timeout=timeout,
         send_offset=_parse_bool(serial_config.get("send_offset", False)),
@@ -294,7 +362,7 @@ def main(argv: list[str] | None = None) -> int:
     serial_port: serial.Serial | None = None
     sender: SerialSender | None = None
 
-    sent_track_keys: set[tuple[int, int]] = set()
+    send_gate = TrackSendGate()
     last_trackless_send_at = 0.0
 
     try:
@@ -313,7 +381,7 @@ def main(argv: list[str] | None = None) -> int:
                 print("Camera frame read failed")
                 break
 
-            current_in_zone_keys: set[tuple[int, int]] = set()
+            current_in_zone_keys: set[TrackKey] = set()
             width = frame.shape[1]
             image_center_x = width // 2
             left_x = int(width * config.zone_left_ratio)
@@ -354,7 +422,7 @@ def main(argv: list[str] | None = None) -> int:
                     if track_id is not None:
                         label = f"{label} id:{track_id}"
 
-                    track_key: tuple[int, int] | None = None
+                    track_key: TrackKey | None = None
                     if track_id is not None and in_zone:
                         track_key = (track_id, box_id)
                         current_in_zone_keys.add(track_key)
@@ -363,7 +431,7 @@ def main(argv: list[str] | None = None) -> int:
                     if in_zone and sender is not None:
                         should_send = False
                         if track_key is not None:
-                            should_send = track_key not in sent_track_keys
+                            should_send = send_gate.can_send(track_key)
                         elif now - last_trackless_send_at >= config.cooldown_sec:
                             should_send = True
 
@@ -375,7 +443,7 @@ def main(argv: list[str] | None = None) -> int:
                             )
                             if sender.send(packet):
                                 if track_key is not None:
-                                    sent_track_keys.add(track_key)
+                                    send_gate.mark_sent(track_key)
                                 else:
                                     last_trackless_send_at = now
                                 sent_packet = True
@@ -388,7 +456,7 @@ def main(argv: list[str] | None = None) -> int:
                         color = (255, 160, 0)
                     _draw_detection(frame, xyxy, label, color)
 
-            sent_track_keys &= current_in_zone_keys
+            send_gate.end_frame(current_in_zone_keys)
 
             cv2_module.imshow(config.window_name, frame)
             key = cv2_module.waitKey(1) & 0xFF
