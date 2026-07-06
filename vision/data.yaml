@@ -1,0 +1,14 @@
+# YOLOv8 dataset config. The dataset directory is local and ignored by Git.
+path: datasets/electronic_data/electronic-components.v3i.yolov8
+train: train/images
+val: valid/images
+test: test/images
+
+nc: 6
+names:
+  - ceramic-capacitor
+  - diode
+  - electrolytic-capacitor
+  - polyester-capacitor
+  - resistor
+  - transistor

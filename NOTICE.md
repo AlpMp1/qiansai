@@ -14,6 +14,7 @@ Third-party or generated foundations include:
 - LVGL graphics library;
 - LCD display driver, font, and image assets adapted for this firmware where applicable;
 - Ultralytics YOLOv8 runtime and training framework;
+- YOLOv8-format dataset export metadata from Roboflow where local training data is used;
 - OpenCV, PySerial, PyYAML, and pytest Python packages.
 
 Third-party source files retain their original license notices where present.
