@@ -22,6 +22,8 @@ This code deliverable implements five-class electronic component sorting with a 
 
 ## Quick Start
 
+Unless specified otherwise, commands are intended to be run from the repository root.
+
 Install the Python dependencies:
 
 ```powershell
@@ -41,6 +43,8 @@ pytest -q
 python -m pytest -q
 ```
 
-The model weight file `vision/weights/best.pt` may be present in the local RAR package, but model weights are ignored by Git and are not committed by default.
+Running inference requires a local model weight file at `vision/weights/best.pt`. GitHub ignores `.pt` weights; this file may be present in the local RAR package, or it must be provided separately before running the sorter.
+
+Raw training data and captured datasets are intentionally not included in GitHub and are ignored by `.gitignore`. Training and collection tools expect those local data files when development work needs them.
 
 Third-party and generated foundations are listed in `NOTICE.md`.

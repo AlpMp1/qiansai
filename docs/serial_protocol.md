@@ -18,10 +18,12 @@ The default UART packet sent from the Python upper host to the STM32 firmware is
 
 The firmware ignores invalid IDs outside `1..5`. The upper host also filters model class `0` before sending, so `ceramic-capacitor` does not produce a packet.
 
+The current STM32 firmware parses only this default three-byte packet: `0xAA box_id 0x55`.
+
 The Python packet builder also implements an optional offset packet format, disabled by default in `vision/config.yaml`:
 
 ```text
 0xAA box_id x_offset_hi x_offset_lo 0x55
 ```
 
-`x_offset_hi` and `x_offset_lo` encode `x_offset` as a signed int16 in big-endian byte order. The submitted default configuration uses the three-byte packet.
+`x_offset_hi` and `x_offset_lo` encode `x_offset` as a signed int16 in big-endian byte order. This optional packet exists for future firmware support only. With the current firmware, keep `send_offset: false`; enabling it sends a packet format that the submitted STM32 parser does not handle.
